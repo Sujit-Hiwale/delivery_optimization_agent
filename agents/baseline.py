@@ -5,19 +5,16 @@ def distance(a, b):
     return (a[0]-b[0])**2 + (a[1]-b[1])**2
 
 
-def nearest_neighbor_route(start, orders):
-    """
-    Simple TSP approximation using nearest neighbor
-    """
+def nearest_neighbor_route(start, points):
     route = []
     current = start
-    remaining = orders[:]
+    remaining = points[:]
 
     while remaining:
-        next_order = min(remaining, key=lambda o: distance(current, o.location))
-        route.append(next_order)
-        current = next_order.location
-        remaining.remove(next_order)
+        next_point = min(remaining, key=lambda p: distance(current, p))
+        route.append(next_point)
+        current = p = next_point
+        remaining.remove(next_point)
 
     return route
 
@@ -32,7 +29,7 @@ def baseline_agent(obs):
             assignments[v.id] = []
             continue
 
-        # Step 1: pick nearby orders
+        # Step 1: assign closest orders
         sorted_orders = sorted(
             remaining_orders,
             key=lambda o: distance(v.location, o.location)
@@ -40,12 +37,27 @@ def baseline_agent(obs):
 
         selected = sorted_orders[:v.capacity]
 
-        # Step 2: optimize route order (TSP approx)
-        optimized_route = nearest_neighbor_route(v.location, selected)
+        # Step 2: create pickup + delivery points
+        route_points = []
 
-        assignments[v.id] = [o.id for o in optimized_route]
+        for o in selected:
+            if not getattr(o, "picked", False):
+                route_points.append(o.pickup)   # go to warehouse
+            route_points.append(o.location)     # then deliver
 
-        # remove assigned
+        # Step 3: optimize route
+        optimized = nearest_neighbor_route(v.location, route_points)
+
+        # Step 4: map back to order IDs
+        ordered_ids = []
+        for point in optimized:
+            for o in selected:
+                if (not o.picked and point == o.pickup) or point == o.location:
+                    if o.id not in ordered_ids:
+                        ordered_ids.append(o.id)
+
+        assignments[v.id] = ordered_ids
+
         for o in selected:
             remaining_orders.remove(o)
 

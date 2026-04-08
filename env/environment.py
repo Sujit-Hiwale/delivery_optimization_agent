@@ -16,6 +16,12 @@ class DeliveryEnv:
 
         self.orders = []
 
+        # 🚀 Warehouses
+        self.warehouses = [
+            (40.75, -73.99),
+            (40.755, -73.985)
+        ]
+
         self.vehicles = [
             Vehicle(
                 id=str(i),
@@ -28,10 +34,8 @@ class DeliveryEnv:
             for i in range(self.num_vehicles)
         ]
 
-        # Track deliveries per vehicle
+        # Stats
         self.vehicle_stats = {v.id: 0 for v in self.vehicles}
-
-        # 🔥 Route memory for each vehicle
         self.vehicle_routes = {v.id: [] for v in self.vehicles}
 
         return self._get_obs()
@@ -67,26 +71,29 @@ class DeliveryEnv:
                 reward -= 0.3
                 order_ids = order_ids[:vehicle.capacity]
 
-            # 🔥 Initialize route ONLY if empty
-            if not self.vehicle_routes[vid]:
-                self.vehicle_routes[vid] = order_ids.copy()
-
+            # 🚀 FIXED: Always update route
+            self.vehicle_routes[vid] = order_ids.copy()
             route = self.vehicle_routes[vid]
 
             if not route:
-                reward -= 0.05  # idle
+                reward -= 0.05
                 continue
 
             current_oid = route[0]
             order = next((o for o in self.orders if o.id == current_oid), None)
 
-            if not order or order.delivered:
+            if not order:
                 route.pop(0)
                 continue
 
-            # Move toward target
+            # 🚀 Decide target (pickup or delivery)
+            if not getattr(order, "picked", False):
+                target = order.pickup
+            else:
+                target = order.location
+
             lat, lon = vehicle.location
-            tlat, tlon = order.location
+            tlat, tlon = target
 
             step_size = 0.0007
             dlat = tlat - lat
@@ -97,14 +104,24 @@ class DeliveryEnv:
                 lat += step_size * (dlat / dist)
                 lon += step_size * (dlon / dist)
                 vehicle.location = (lat, lon)
+
                 self.total_distance += dist
 
-            # 🔥 Deliver ANY nearby order (important realism)
+                # 🚀 Distance penalty (optimization)
+                reward -= 0.001 * dist
+
+            # 🚀 PICKUP LOGIC
+            if not getattr(order, "picked", False):
+                if self.distance(vehicle.location, order.pickup) < 0.0005:
+                    order.picked = True
+                    reward += 0.2  # small reward
+
+            # 🚀 DELIVERY LOGIC
             for o in self.orders:
                 if o.delivered:
                     continue
 
-                if self.distance(vehicle.location, o.location) < 0.0005:
+                if getattr(o, "picked", False) and self.distance(vehicle.location, o.location) < 0.0005:
                     o.delivered = True
                     delivered_orders.add(o.id)
                     self.completed += 1
@@ -116,11 +133,10 @@ class DeliveryEnv:
                     else:
                         reward -= 0.5
 
-                    # Remove from route if present
                     if o.id in route:
                         route.remove(o.id)
 
-        # Remove delivered orders globally
+        # Remove delivered orders
         self.orders = [o for o in self.orders if not o.delivered]
 
         # Small global penalty

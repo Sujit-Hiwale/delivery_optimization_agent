@@ -7,6 +7,8 @@ class Order(BaseModel):
     location: Tuple[float, float]
     deadline: int
     delivered: bool = False
+    pickup: Tuple[float, float] = None
+    picked: bool = False
 
 
 class Vehicle(BaseModel):
